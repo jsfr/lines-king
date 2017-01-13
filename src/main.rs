@@ -17,6 +17,7 @@ const BLACK:   [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 type Point = (u8, u8);
 
+#[derive(Copy, Clone)]
 enum Direction {
     North,
     East,
@@ -107,6 +108,22 @@ impl App {
             }
         }
     }
+
+    fn move_player(&mut self, button: &Button) {
+        use Direction::*;
+
+        match (self.player.direction, *button) {
+            (North, Button::Keyboard(Key::A)) => self.player.direction = West,
+            (North, Button::Keyboard(Key::D)) => self.player.direction = East,
+            (South, Button::Keyboard(Key::A)) => self.player.direction = East,
+            (South, Button::Keyboard(Key::D)) => self.player.direction = West,
+            (East, Button::Keyboard(Key::A)) => self.player.direction = North,
+            (East, Button::Keyboard(Key::D)) => self.player.direction = South,
+            (West, Button::Keyboard(Key::A)) => self.player.direction = South,
+            (West, Button::Keyboard(Key::D)) => self.player.direction = North,
+            _ => ()
+        }
+    }
 }
 
 
@@ -156,5 +173,10 @@ fn main() {
         if let Some(u) = e.update_args() {
             app.update(&u);
         }
+
+        if let Some(b) = e.press_args() {
+            app.move_player(&b)
+        }
+
     }
 }
