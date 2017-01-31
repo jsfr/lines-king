@@ -2,14 +2,16 @@ extern crate piston;
 extern crate graphics;
 extern crate glutin_window;
 extern crate opengl_graphics;
+extern crate nalgebra;
 
 use piston::window::WindowSettings;
 use piston::event_loop::*;
 use piston::input::*;
 use glutin_window::GlutinWindow as Window;
 use opengl_graphics::{ GlGraphics, OpenGL };
+use nalgebra::DMatrix;
 
-type Point = (u8, u8);
+type Point = (usize, usize);
 type Color = [f32; 4];
 
 const RED:    Color = [1.0, 0.0, 0.0, 1.0];
@@ -18,10 +20,11 @@ const BLUE:   Color = [0.0, 0.0, 1.0, 1.0];
 const YELLOW: Color = [0.0, 1.0, 1.0, 1.0];
 const BLACK:  Color = [0.0, 0.0, 0.0, 1.0];
 
-const BOARD_WIDTH: u8 = 100;
-const BOARD_HEIGHT: u8 = 100;
-const TILE_SIZE: u8 = 4;
-const UPDATE_TIME: f64 = 0.025;
+const BOARD_WIDTH: usize = 300;
+const BOARD_HEIGHT: usize = 300;
+const TILE_SIZE: f64 = 4.0;
+const PLAYER_SIZE: usize = 4;
+const UPDATES_PER_SECOND: u64 = 60;
 
 #[derive(Copy, Clone)]
 enum Direction {
@@ -38,9 +41,9 @@ enum Tile {
 }
 
 struct Board {
-    tiles: Vec<Vec<Tile>>,
-    width: u8,
-    height: u8
+    tiles: DMatrix<Tile>,
+    width: usize,
+    height: usize
 }
 
 struct Player {
@@ -54,14 +57,8 @@ struct App {
     gl: GlGraphics, // OpenGL drawing backend.
     players: Vec<Player>,
     board: Board,
-    time: f64,
-    update_time: f64,
-    tile_size: u8
+    tile_size: f64
 }
-
-// fn mod(a, b) {
-//     ((a % b) + b) % b
-// }
 
 impl Player {
     fn turn(&mut self, button: &Button) {
@@ -92,21 +89,27 @@ impl Player {
         }
     }
 
-    fn step(&mut self) {
+    fn step(&mut self, width: usize, height: usize) {
         match self.direction {
-            Direction::North => self.pos.1 -= 1,
-            Direction::South => self.pos.1 += 1,
-            Direction::West => self.pos.0 -= 1,
-            Direction::East => self.pos.0 += 1,
+            // Regular movement
+            Direction::North if self.pos.0 > 0        => self.pos.0 -= 1,
+            Direction::South if self.pos.0 < height-1 => self.pos.0 += 1,
+            Direction::West  if self.pos.1 > 0        => self.pos.1 -= 1,
+            Direction::East  if self.pos.1 < width-1  => self.pos.1 += 1,
+            // Wrapping movements when moving out of screen
+            Direction::North => self.pos.0 = height-1,
+            Direction::South => self.pos.0 = 0,
+            Direction::West  => self.pos.1 = width-1,
+            Direction::East  => self.pos.1 = 0,
         }
     }
 }
 
 impl Board {
-    fn new(width: u8, height: u8, players: &Vec<Player>) -> Board {
-        let mut tiles = vec![vec![Tile::Empty; height as usize]; width as usize];
+    fn new(width: usize, height: usize, players: &Vec<Player>) -> Board {
+        let mut tiles = DMatrix::from_element(height, width, Tile::Empty);
         for player in players {
-            tiles[player.pos.0 as usize][player.pos.1 as usize] = Tile::Occupied(player.color);
+            tiles[player.pos] = Tile::Occupied(player.color);
         }
         Board {
             width: width,
@@ -118,17 +121,18 @@ impl Board {
 
 impl App {
     fn render(&mut self, args: &RenderArgs) {
-        let tile_size = self.tile_size as f64;
+        use graphics::{clear, rectangle};
+
+        let tile_size = self.tile_size;
         let width = self.board.width;
         let height = self.board.height;
         let ref tiles = self.board.tiles;
 
         self.gl.draw(args.viewport(), |context, gl| {
             clear(BLACK, gl);
-            // rectangle(color, player_square, context.transform, gl);
             for x in 0..width-1 {
                 for y in 0..height-1 {
-                    if let Tile::Occupied(color) = tiles[x as usize][y as usize] {
+                    if let Tile::Occupied(color) = tiles[(y, x)] {
                         let square = rectangle::square(
                             x as f64 * tile_size,
                             y as f64 * tile_size,
@@ -142,14 +146,9 @@ impl App {
     }
 
     fn update(&mut self, args: &UpdateArgs) {
-        self.time += args.dt;
-
-        while self.time > self.update_time {
-            self.time -= self.update_time;
-            for mut player in &mut self.players {
-                player.step();
-                self.board.tiles[player.pos.0 as usize][player.pos.1 as usize] = Tile::Occupied(player.color);
-            }
+        for mut player in &mut self.players {
+            player.step(self.board.width, self.board.height);
+            self.board.tiles[player.pos] = Tile::Occupied(player.color);
         }
     }
 
@@ -197,12 +196,11 @@ fn main() {
         gl: GlGraphics::new(opengl),
         players: players,
         board: board,
-        time: 0.0,
-        update_time: UPDATE_TIME,
         tile_size: TILE_SIZE
     };
 
     let mut events = window.events();
+    events.set_ups(UPDATES_PER_SECOND);
     while let Some(e) = events.next(&mut window) {
         if let Some(r) = e.render_args() {
             app.render(&r);
